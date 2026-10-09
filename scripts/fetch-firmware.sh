@@ -10,11 +10,15 @@
 #   netgear-r8000-webflash.bin - flash this SECOND, from inside DD-WRT
 #
 # Usage:  scripts/fetch-firmware.sh [output-dir]      (default: ./firmware)
+#         scripts/fetch-firmware.sh --verify-only     re-check files already in ./firmware
 set -euo pipefail
+export LC_ALL=C   # byte-safe text tools: firmware images are binary
 
 BASE="https://download1.dd-wrt.com/dd-wrtv2/downloads/betas/"
 MODEL_RE='r8000'                 # matched case-insensitively against folder/file names
 R8000_BOARD_ID='U12H315T00'      # Netgear board ID embedded in every R8000 .chk header
+VERIFY_ONLY=0
+if [[ "${1:-}" == "--verify-only" ]]; then VERIFY_ONLY=1; shift; fi
 OUT="${1:-$(cd "$(dirname "$0")/.." && pwd)/firmware}"
 
 say() { printf '%s\n' "$*" >&2; }
@@ -52,48 +56,56 @@ sha256() {
   else shasum -a 256 "$1" | awk '{print $1}'; fi
 }
 
-say "Listing $BASE"
-years="$(hrefs "$BASE" | grep -E '^[0-9]{4}/$' | sort -r)"
-[[ -n "$years" ]] || die "no year folders found at $BASE (network blocked? layout changed?)"
+if [[ $VERIFY_ONLY -eq 1 ]]; then
+  chk="$(ls "$OUT"/*.chk 2>/dev/null | head -n1 | xargs -n1 basename 2>/dev/null || true)"
+  bin="$(ls "$OUT"/*.bin 2>/dev/null | head -n1 | xargs -n1 basename 2>/dev/null || true)"
+  [[ -n "$chk" && -n "$bin" ]] || die "--verify-only: need one .chk and one .bin in $OUT"
+  model_url="(already downloaded)"
+  say "Verifying existing files in $OUT"
+else
+  say "Listing $BASE"
+  years="$(hrefs "$BASE" | grep -E '^[0-9]{4}/$' | sort -r)"
+  [[ -n "$years" ]] || die "no year folders found at $BASE (network blocked? layout changed?)"
 
-model_url=""
-for y in $years; do
-  say "Scanning $BASE$y"
-  builds="$(hrefs "$BASE$y" | dated_dirs_newest_first)"
-  for b in $builds; do
-    if model_url="$(find_model_dir "$BASE$y$b")"; then
-      say "Newest build with an R8000 folder: $BASE$y$b"
-      break 2
-    fi
-    say "  $b has no R8000 build, trying the previous one"
+  model_url=""
+  for y in $years; do
+    say "Scanning $BASE$y"
+    builds="$(hrefs "$BASE$y" | dated_dirs_newest_first)"
+    for b in $builds; do
+      if model_url="$(find_model_dir "$BASE$y$b")"; then
+        say "Newest build with an R8000 folder: $BASE$y$b"
+        break 2
+      fi
+      say "  $b has no R8000 build, trying the previous one"
+    done
   done
-done
-[[ -n "$model_url" ]] || die "no R8000 folder found in any beta build"
-say "R8000 folder: $model_url"
+  [[ -n "$model_url" ]] || die "no R8000 folder found in any beta build"
+  say "R8000 folder: $model_url"
 
-files="$(hrefs "$model_url" | grep -iE '\.(chk|bin)$' || true)"
-chk="$(printf '%s\n' "$files" | grep -iE '\.chk$' | head -n1 || true)"
-bin="$(printf '%s\n' "$files" | grep -iE '\.bin$' | head -n1 || true)"
-[[ -n "$chk" ]] || die "no .chk (factory-to-DD-WRT) file in $model_url"
-[[ -n "$bin" ]] || die "no .bin (webflash) file in $model_url"
+  files="$(hrefs "$model_url" | grep -iE '\.(chk|bin)$' || true)"
+  chk="$(printf '%s\n' "$files" | grep -iE '\.chk$' | head -n1 || true)"
+  bin="$(printf '%s\n' "$files" | grep -iE '\.bin$' | head -n1 || true)"
+  [[ -n "$chk" ]] || die "no .chk (factory-to-DD-WRT) file in $model_url"
+  [[ -n "$bin" ]] || die "no .bin (webflash) file in $model_url"
 
-mkdir -p "$OUT"
-for f in "$chk" "$bin"; do
-  say "Downloading $f"
-  curl -fL --retry 3 --progress-bar -o "$OUT/$f" "$model_url$f"
-done
+  mkdir -p "$OUT"
+  for f in "$chk" "$bin"; do
+    say "Downloading $f"
+    curl -fL --retry 3 --progress-bar -o "$OUT/$f" "$model_url$f"
+  done
+fi
 
 # --- Verification: are these really R8000 images? ---
 chk_path="$OUT/$chk"; bin_path="$OUT/$bin"
-printf "%s" "$model_url$chk" | tr "[:upper:]" "[:lower:]" | grep -q r8000 || die "path/filename does not mention r8000: $model_url$chk"
+printf "%s" "$model_url $chk $bin" | tr "[:upper:]" "[:lower:]" | grep -q r8000 || die "neither folder nor filenames mention r8000: $model_url $chk $bin"
 
 # Netgear .chk header: starts with magic *#$^ and carries the board ID string.
-head -c 4 "$chk_path" | grep -q '^\*#\$\^' || die "$chk does not start with the Netgear *#\$^ magic"
-head -c 128 "$chk_path" | tr -d '\0' | grep -q "$R8000_BOARD_ID" \
+head -c 4 "$chk_path" | grep -aq '^\*#\$\^' || die "$chk does not start with the Netgear *#\$^ magic"
+head -c 128 "$chk_path" | grep -aq "$R8000_BOARD_ID" \
   || die "$chk does not carry the R8000 board ID $R8000_BOARD_ID - this is NOT an R8000 image"
 
 # DD-WRT webflash .bin for Broadcom ARM is a TRX image: magic HDR0 at offset 0.
-head -c 4 "$bin_path" | grep -q '^HDR0' || die "$bin does not start with the TRX HDR0 magic"
+head -c 4 "$bin_path" | grep -aq '^HDR0' || die "$bin does not start with the TRX HDR0 magic"
 [[ $(stat -c %s "$bin_path" 2>/dev/null || stat -f %z "$bin_path") -gt 10000000 ]] || die "$bin is suspiciously small"
 
 {
