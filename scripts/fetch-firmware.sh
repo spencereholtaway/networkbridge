@@ -85,7 +85,7 @@ done
 
 # --- Verification: are these really R8000 images? ---
 chk_path="$OUT/$chk"; bin_path="$OUT/$bin"
-[[ "${model_url,,}" == *r8000* || "${chk,,}" == *r8000* ]] || die "path/filename does not mention r8000: $model_url$chk"
+printf "%s" "$model_url$chk" | tr "[:upper:]" "[:lower:]" | grep -q r8000 || die "path/filename does not mention r8000: $model_url$chk"
 
 # Netgear .chk header: starts with magic *#$^ and carries the board ID string.
 head -c 4 "$chk_path" | grep -q '^\*#\$\^' || die "$chk does not start with the Netgear *#\$^ magic"
