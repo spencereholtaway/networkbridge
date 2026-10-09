@@ -30,7 +30,12 @@ LAN_IP="${LAN_IP:-192.168.4.2}"
 LAN_MASK="${LAN_MASK:-255.255.255.0}"
 GATEWAY="${GATEWAY:-192.168.4.1}"
 DNS="${DNS:-$GATEWAY}"
-VIF="${RADIO}.1"
+# Where the office network (EXT_SSID) is broadcast:
+#   AP_RADIO = RADIO (or empty): a virtual AP on the bridge radio (one radio does both)
+#   AP_RADIO = another radio   : a normal AP on that radio, bridged to the same LAN.
+#     Uplink and office traffic then use different radios, so speed is not halved.
+AP_RADIO="${AP_RADIO:-$RADIO}"
+if [ "$AP_RADIO" = "$RADIO" ]; then AP_IF="${RADIO}.1"; else AP_IF="$AP_RADIO"; fi
 
 fail() { echo "ERROR: $*" >&2; exit 1; }
 for v in EERO_SSID EERO_PSK EXT_PSK; do
@@ -67,6 +72,13 @@ IFNAME="$(nvram get ${RADIO}_ifname)"
 RBAND="$(radio_band "$IFNAME")"
 echo "Bridge radio: $RADIO = $IFNAME, $RBAND"
 [ "$RBAND" = "5 GHz" ] || echo "NOTE: $RADIO is not a 5 GHz radio. Fine only if you chose 2.4 GHz on purpose."
+if [ "$AP_RADIO" != "$RADIO" ]; then
+  AP_IFNAME="$(nvram get ${AP_RADIO}_ifname)"
+  [ -n "$AP_IFNAME" ] || fail "AP_RADIO $AP_RADIO does not exist on this build"
+  echo "Office AP   : $AP_RADIO = $AP_IFNAME, $(radio_band "$AP_IFNAME")"
+else
+  echo "Office AP   : virtual AP $AP_IF on the bridge radio"
+fi
 echo
 
 # --- Confirm the variable names exist in this build's defaults -----------------
@@ -79,16 +91,27 @@ for k in mode ssid security_mode akm crypto wpa_psk channel net_mode; do
     printf '  MISSING %s_%s\n' "$RADIO" "$k"; missing=$((missing+1))
   fi
 done
+if [ "$AP_RADIO" != "$RADIO" ]; then
+  for k in mode ssid security_mode akm crypto wpa_psk; do
+    if printf '%s\n' "$NV" | grep -q "^${AP_RADIO}_${k}="; then
+      printf '  ok      %s_%s\n' "$AP_RADIO" "$k"
+    else
+      printf '  MISSING %s_%s\n' "$AP_RADIO" "$k"; missing=$((missing+1))
+    fi
+  done
+fi
 for k in lan_ipaddr lan_netmask lan_gateway lan_proto wan_proto filter; do
   if printf '%s\n' "$NV" | grep -q "^${k}="; then printf '  ok      %s\n' "$k"
   else printf '  MISSING %s\n' "$k"; missing=$((missing+1)); fi
 done
-if printf '%s\n' "$NV" | grep -q "^${RADIO}_vifs="; then
-  echo "  ok      ${RADIO}_vifs (currently: '$(nvram get ${RADIO}_vifs)')"
-else
-  echo "  note    ${RADIO}_vifs not present yet - normal on fresh defaults, it is created when a virtual AP is added"
+if [ "$AP_RADIO" = "$RADIO" ]; then
+  if printf '%s\n' "$NV" | grep -q "^${RADIO}_vifs="; then
+    echo "  ok      ${RADIO}_vifs (currently: '$(nvram get ${RADIO}_vifs)')"
+  else
+    echo "  note    ${RADIO}_vifs not present yet - normal on fresh defaults, it is created when a virtual AP is added"
+  fi
+  echo "  note    ${AP_IF}_* keys are created by this script; they do not exist on fresh defaults"
 fi
-echo "  note    ${VIF}_* keys are created by this script; they do not exist on fresh defaults"
 for k in ${RADIO}_bridged sv_localdns; do
   printf '%s\n' "$NV" | grep -q "^${k}=" || echo "  note    $k not present yet - only stored once saved, created by this script"
 done
@@ -112,17 +135,38 @@ ${RADIO}_crypto=aes
 ${RADIO}_wpa_psk=${EERO_PSK}
 ${RADIO}_channel=0
 ${RADIO}_bridged=1
-${RADIO}_vifs=${VIF}
-${VIF}_ssid=${EXT_SSID}
-${VIF}_mode=ap
-${VIF}_security_mode=psk2
-${VIF}_akm=psk2
-${VIF}_crypto=aes
-${VIF}_wpa_psk=${EXT_PSK}
-${VIF}_bridged=1
-${VIF}_closed=0
-${VIF}_ap_isolate=0
-${VIF}_macmode=disabled
+"
+if [ "$AP_RADIO" = "$RADIO" ]; then
+  PLAN="$PLAN
+${RADIO}_vifs=${AP_IF}
+${AP_IF}_mode=ap
+${AP_IF}_bridged=1"
+else
+  # Normal AP on its own radio; make sure the bridge radio carries no leftover VAP.
+  PLAN="$PLAN
+${RADIO}_vifs=
+${AP_IF}_mode=ap
+${AP_IF}_net_mode=mixed"
+fi
+PLAN="$PLAN
+${AP_IF}_ssid=${EXT_SSID}
+${AP_IF}_security_mode=psk2
+${AP_IF}_akm=psk2
+${AP_IF}_crypto=aes
+${AP_IF}_wpa_psk=${EXT_PSK}
+${AP_IF}_closed=0
+${AP_IF}_ap_isolate=0
+${AP_IF}_macmode=disabled
+"
+# Switch off radios that are neither the uplink nor the office AP, so the
+# factory-default open 'dd-wrt' network does not keep broadcasting.
+for r in wl0 wl1 wl2; do
+  [ "$r" = "$RADIO" ] || [ "$r" = "$AP_RADIO" ] && continue
+  [ -n "$(nvram get ${r}_ifname)" ] || continue
+  PLAN="$PLAN
+${r}_net_mode=disabled"
+done
+PLAN="$PLAN
 lan_ipaddr=${LAN_IP}
 lan_netmask=${LAN_MASK}
 lan_gateway=${GATEWAY}
@@ -132,7 +176,7 @@ wan_proto=disabled
 filter=off
 "
 
-echo "== Planned nvram changes (radio $RADIO = $IFNAME) =="
+echo "== Planned nvram changes (uplink $RADIO = $IFNAME, office AP $AP_IF) =="
 printf '%s\n' "$PLAN" | sed '/^$/d' | while IFS= read -r line; do
   key="${line%%=*}"
   case "$key" in *wpa_psk) echo "  nvram set $key=********" ;; *) echo "  nvram set $line" ;; esac
@@ -144,6 +188,7 @@ echo "  - lan_proto=static turns the R8000's DHCP server OFF; the Eero hands out
 echo "  - wan_proto=disabled: no WAN in repeater-bridge mode; the WAN port stays empty."
 echo "  - filter=off disables the SPI firewall, required for bridged traffic to flow."
 echo "  - ${RADIO}_channel=0: the bridge follows whatever channel the Eero is on."
+echo "  - any radio set to net_mode=disabled is switched off (not used for uplink or office)."
 
 if [ "$COMMIT" -ne 1 ]; then
   echo

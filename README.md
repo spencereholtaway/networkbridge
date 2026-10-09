@@ -118,8 +118,14 @@ The target config:
   Eero's 5 GHz signal (`wl -i eth1 scan`, then `wl -i eth1 scanresults`; same for eth3).
 * **Bridged SSID:** exactly matches the Eero SSID (same spelling, same case).
 * **Bridged security:** same mode (WPA2/WPA3) and same password as the Eero.
-* **Virtual interface:** a second SSID on that radio, new and unique (`Office-Ext`) —
-  the network your office devices join. Its own security.
+* **Office network:** a new, unique SSID (`Office-Ext`) — the network your office devices
+  join, with its own security. By default it is a virtual AP on the bridge radio. Set
+  `AP_RADIO` in `config.env` to put it on a different radio instead, which avoids halving
+  throughput.
+* **If the Eero's 5 GHz is out of reach:** Eero picks its own channels and cannot be
+  pinned. If it sits on a channel the R8000 cannot use (e.g. 100–144, seen as channel
+  128 at 160 MHz here), bridge on 2.4 GHz (`RADIO="wl1"`) and serve the office on 5 GHz
+  (`AP_RADIO="wl0"`). Radios used for neither are switched off.
 * **Local IP:** a free address on the Eero subnet, 192.168.4.2 (must not collide with
   the Eero's DHCP range).
 * **Subnet mask:** 255.255.255.0. **Gateway** and **local DNS:** the Eero's IP, 192.168.4.1.

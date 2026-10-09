@@ -31,8 +31,17 @@ once() {
   echo "rate     : $(wl -i "$IF" rate 2>&1)"
   echo "nrate    : $(wl -i "$IF" nrate 2>&1)"
   echo "channel  : $(wl -i "$IF" chanspec 2>&1)"
-  echo "-- clients on the virtual AP ($RADIO.1) --"
-  wl -i "$IF" assoclist 2>&1
+  echo "-- clients on the office network --"
+  for r in wl0 wl1 wl2; do
+    ifn="$(nvram get ${r}_ifname)"; [ -n "$ifn" ] || continue
+    [ "$(nvram get ${r}_net_mode)" = "disabled" ] && continue
+    v="$(nvram get ${r}_vifs)"
+    for i in $ifn $v; do
+      [ "$r" = "$RADIO" ] && [ "$i" = "$ifn" ] && continue   # uplink: its assoclist is the Eero
+      echo "$r $i: $(wl -i "$i" assoclist 2>/dev/null | wc -l) client(s)"
+      wl -i "$i" assoclist 2>/dev/null
+    done
+  done
   echo "-- bridge --"
   ifconfig br0 2>/dev/null | grep 'inet addr' | sed 's/^ *//'
   gw="$(nvram get lan_gateway)"
