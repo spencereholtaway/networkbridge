@@ -1,0 +1,6 @@
+# Local secrets: Wi-Fi SSIDs/passwords for the bridge config
+config.env
+
+# Downloaded firmware images (tens of MB each) - keep out of git
+firmware/*
+!firmware/.gitkeep
