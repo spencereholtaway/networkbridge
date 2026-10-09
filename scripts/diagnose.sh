@@ -7,7 +7,13 @@
 # Prints the radio's nvram config (passwords masked), whether the R8000 can even
 # see the Eero in a scan, the LAN/WAN settings, and gateway reachability.
 set -u
-RADIO="${RADIO:-wl1}"
+# Default: the radio in repeater-bridge mode (apstawet), else wl0.
+if [ -z "${RADIO:-}" ]; then
+  for r in wl0 wl1 wl2; do
+    [ "$(nvram get ${r}_mode 2>/dev/null)" = "apstawet" ] && { RADIO="$r"; break; }
+  done
+  RADIO="${RADIO:-wl0}"
+fi
 while [ $# -gt 0 ]; do
   case "$1" in --radio) RADIO="$2"; shift ;; esac; shift
 done

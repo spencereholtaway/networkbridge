@@ -112,7 +112,10 @@ reach it, enable SSH (Services > Services > Secure Shell > SSHd = Enable, Save +
 
 The target config:
 
-* **Bridge radio:** a 5 GHz radio (`wl1`), set to Repeater Bridge mode (`apstawet`).
+* **Bridge radio:** a 5 GHz radio, set to Repeater Bridge mode (`apstawet`). On the R8000
+  under DD-WRT, `wl0` (eth1) and `wl2` (eth3) are 5 GHz and `wl1` (eth2) is **2.4 GHz**.
+  The two 5 GHz radios cover different channel ranges, so use the one that can see the
+  Eero's 5 GHz signal (`wl -i eth1 scan`, then `wl -i eth1 scanresults`; same for eth3).
 * **Bridged SSID:** exactly matches the Eero SSID (same spelling, same case).
 * **Bridged security:** same mode (WPA2/WPA3) and same password as the Eero.
 * **Virtual interface:** a second SSID on that radio, new and unique (`Office-Ext`) —
@@ -127,6 +130,7 @@ The target config:
 ```sh
 cp config.env.example config.env     # fill in SSIDs, passwords, IPs
 scripts/push-config.sh               # dry run: checks this build's nvram keys, prints every nvram set
+# same thing by hand:  cat config.env scripts/repeater-bridge.sh | ssh root@192.168.1.1 sh -s
 scripts/push-config.sh --commit      # apply + nvram commit
 ```
 
@@ -142,7 +146,8 @@ to reach it over the bench cable again give the laptop a static address such as
 
 ### Hand-off brief for Claude Code (if doing it interactively instead)
 
-> SSH into a DD-WRT R8000 at [its IP]. Configure wl1 (5 GHz) as a repeater bridge onto
+> SSH into a DD-WRT R8000 at [its IP]. Configure the 5 GHz radio that sees the Eero
+> (wl0 or wl2; wl1 is 2.4 GHz on this router) as a repeater bridge onto
 > SSID [Eero SSID] with WPA2 password [pw]. Add a virtual AP with SSID Office-Ext. Set
 > LAN IP 192.168.4.2/24, gateway and DNS 192.168.4.1, disable WAN. Use nvram set/commit
 > and reboot. Confirm the variable names against this build's defaults first, and show me
@@ -174,7 +179,7 @@ RSSI closer to 0 is better: around −60 dBm is good, −70 is fine, −80 is po
 ## If the bridge won't connect (common on R8000)
 
 ```sh
-ssh root@<router-ip> 'sh -s' < scripts/diagnose.sh                 # default radio wl1
+ssh root@<router-ip> 'sh -s' < scripts/diagnose.sh                 # default: the bridge radio
 ssh root@<router-ip> 'sh -s -- --radio wl2' < scripts/diagnose.sh
 ```
 
@@ -183,8 +188,8 @@ R8000 even sees the Eero SSID on that radio, and pings the gateway and the inter
 
 * Double-check the bridged SSID and password exactly match the Eero (case-sensitive).
 * Make sure the R8000's local IP is on the same subnet as the Eero and isn't a duplicate.
-* Try the other 5 GHz radio (`RADIO="wl2"` in `config.env`), or fall back to 2.4 GHz
-  (`wl0`) for the bridge link — slower but connects through walls more reliably, which
+* Try the other 5 GHz radio (switch `RADIO` between `wl0` and `wl2` in `config.env`),
+  or fall back to 2.4 GHz (`wl1`) for the bridge link — slower but connects through walls more reliably, which
   is fine given the goal. Re-run `push-config.sh --commit` after changing it.
 * If the Eero is in WPA3 transition mode and the bridge refuses to associate, set
   `EERO_SEC="psk2 psk3"`; otherwise leave it at `psk2`.

@@ -7,7 +7,13 @@
 # Compare RSSI (closer to 0 is better; -60 good, -70 ok, -80 poor) and the
 # negotiated rate at each candidate position, not the bars on your phone.
 set -u
-RADIO="${RADIO:-wl1}"; WATCH=0
+# Default: the radio in repeater-bridge mode (apstawet), else wl0.
+if [ -z "${RADIO:-}" ]; then
+  for r in wl0 wl1 wl2; do
+    [ "$(nvram get ${r}_mode 2>/dev/null)" = "apstawet" ] && { RADIO="$r"; break; }
+  done
+  RADIO="${RADIO:-wl0}"
+fi; WATCH=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --radio) RADIO="$2"; shift ;;
