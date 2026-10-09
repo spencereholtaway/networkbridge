@@ -5,9 +5,11 @@
 #   scripts/push-config.sh --commit    apply the plan (nvram set + commit)
 #   scripts/push-config.sh --commit --reboot
 #
-# Reads ./config.env (copy config.env.example). Copies it to the router as
-# /tmp/bridge.env (RAM only, gone after reboot), then streams repeater-bridge.sh
-# to the router's shell. Nothing is left on the router's flash except nvram.
+# Reads ./config.env (copy config.env.example) and streams it, followed by
+# repeater-bridge.sh, into one SSH session (one password prompt). Nothing is
+# written to the router except the nvram settings themselves.
+#
+# Equivalent by hand:  cat config.env scripts/repeater-bridge.sh | ssh root@192.168.1.1 sh -s
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="$ROOT/config.env"
@@ -15,8 +17,5 @@ ENV_FILE="$ROOT/config.env"
 # shellcheck disable=SC1090
 ROUTER_IP="$(. "$ENV_FILE"; printf '%s' "${ROUTER_IP:-192.168.1.1}")"
 
-echo "Copying config to root@$ROUTER_IP:/tmp/bridge.env" >&2
-scp -O -q "$ENV_FILE" "root@$ROUTER_IP:/tmp/bridge.env" 2>/dev/null \
-  || scp -q "$ENV_FILE" "root@$ROUTER_IP:/tmp/bridge.env"
-echo "Running repeater-bridge.sh ${*:-(dry run)} on the router" >&2
-ssh "root@$ROUTER_IP" "sh -s -- $*" < "$ROOT/scripts/repeater-bridge.sh"
+echo "Running repeater-bridge.sh ${*:-(dry run)} on root@$ROUTER_IP" >&2
+cat "$ENV_FILE" "$ROOT/scripts/repeater-bridge.sh" | ssh "root@$ROUTER_IP" "sh -s -- $*"
