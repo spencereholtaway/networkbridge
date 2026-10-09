@@ -42,8 +42,9 @@ positioned and bridging to the Eero.
 
 1. Plug the R8000 into power. Use the power button on the back; wait for it to fully
    boot (lights settle, ~1–2 minutes).
-2. Run an Ethernet cable from your laptop to one of the R8000's four LAN ports — the
-   yellow ports, not the Internet/WAN port. The WAN port stays empty for this whole process.
+2. Run an Ethernet cable from your laptop to one of the R8000's four LAN ports, labelled
+   1, 2, 3, 4. Not the single port labelled Internet (the yellow one on the R8000). The
+   Internet/WAN port stays empty for this whole process.
 3. That wired link is how you reach the router for everything: the browser flashing
    (Part B) and the SSH config (Part C) both go over this same cable. Your laptop talks
    to the R8000 directly — the Eero isn't involved yet.
