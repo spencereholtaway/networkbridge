@@ -19,6 +19,36 @@ Router-side scripts are POSIX `sh` (DD-WRT's BusyBox ash). They are streamed ove
 and never stored on the router's flash. Nothing in this repo should ever contain a
 real password: `config.env` and `firmware/` are git-ignored.
 
+## Status after the first attempt (Oct 9, 2026)
+
+**Not working yet.** DD-WRT r66325 is flashed and fine. The repeater bridge joins the Eero
+but passes no traffic: clients on the office network get 169.254 addresses, and the R8000
+cannot ping the Eero at 192.168.4.1. Everything on the R8000 side was verified, and the
+setup was redone once through the web interface with the same result. Most likely the
+Eero does not accept this kind of bridge.
+
+What was learned, so a retry starts from facts:
+
+* **Radio map on this R8000:** wl0 = eth1 = 5 GHz, **wl1 = eth2 = 2.4 GHz**, wl2 = eth3 = 5 GHz.
+  The guide's original "wl1 is 5 GHz" was wrong.
+* **The Eero's 5 GHz is unusable for the bridge.** It sat on channel 128 at 160 MHz, which
+  neither R8000 5 GHz radio covers, and Eero does not let you pin a channel. Its 2.4 GHz was
+  on channel 6, heard at -57 dBm from the office.
+* **Eero subnet is 192.168.4.0/22** (mask 255.255.252.0), not /24. 192.168.4.2 was free.
+* **Set wireless security through the web interface.** After nvram-only setup the uplink
+  never associated. Saving Wireless Security in the GUI made it join (channel 6, 144 Mbit/s
+  after turning TurboQAM off). Traffic still did not pass.
+* **On this build there is no DHCP on/off switch in Basic Setup.** The DHCP server is part of
+  dnsmasq: Services > Services > Dnsmasq Infrastructure > Enable dnsmasq = Disable.
+* **Mac gotcha:** with Wi-Fi on Nandos (also 192.168.4.x) the Mac sends 192.168.4.2 traffic
+  over Wi-Fi, not the cable. Turn Wi-Fi off to reach the bridge at 192.168.4.2. Safari may
+  refuse to load the panel; Chrome worked.
+* **Getting back in:** hold the reset button about 10 s with the router on (not 30-30-30).
+  It returns to fresh DD-WRT at 192.168.1.1 with DHCP on.
+
+Next options, most reliable first: add an Eero node in the bedroom; powerline adapters
+with the R8000 as a wired access point; or retry the bridge.
+
 ## How to use this guide
 
 This is written so you can run it yourself or hand chunks to Claude Code. Most of the
